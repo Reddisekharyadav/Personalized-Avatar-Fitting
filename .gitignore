@@ -1,0 +1,19 @@
+# Ignore large files and model weights
+services/ml/models/*.npz
+services/ml/mrs_*.obj
+services/ml/mrs_avatar_avatar.png
+services/ml/mrs.jpg
+services/ml/models/models_lockedhead/smplx/*.npz
+services/ml/models/models_lockedhead/smplx/md5sums.txt
+# Ignore Python cache and environment
+__pycache__/
+*.pyc
+.venv/
+# Ignore node modules
+apps/web/node_modules/
+# Ignore build and log files
+*.log
+*.tmp
+# Ignore OS files
+.DS_Store
+Thumbs.db
