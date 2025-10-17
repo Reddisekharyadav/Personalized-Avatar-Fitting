@@ -21,6 +21,29 @@ services/ml/models/models_lockedhead/smplx/md5sums.txt
 # Ignore ML model directories and common model binary extensions
 services/ml/models/
 3d using models/services/ml/models/
+# Top-level gitignore for this project
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.vscode/
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
+
+# Ignore large files and model weights
+services/ml/models/*.npz
+services/ml/mrs_*.obj
+services/ml/mrs_avatar_avatar.png
+services/ml/mrs.jpg
+services/ml/models/models_lockedhead/smplx/*.npz
+services/ml/models/models_lockedhead/smplx/md5sums.txt
+# Ignore ML model directories and common model binary extensions
+services/ml/models/
+"3d using models"/services/ml/models/
 **/models/*.npz
 **/models/*.pth
 **/models/*.pt
