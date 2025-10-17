@@ -22,6 +22,7 @@ services/ml/models/models_lockedhead/smplx/md5sums.txt
 __pycache__/
 *.pyc
 .venv/
+venv/
 # Ignore node modules
 apps/web/node_modules/
 # Ignore build and log files
