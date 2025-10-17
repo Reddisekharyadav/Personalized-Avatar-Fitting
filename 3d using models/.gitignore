@@ -1,0 +1,32 @@
+# Mixed Python / Node project ignores
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+build/
+
+# Model weights and binaries
+**/model/*.pth
+**/model/*.pt
+**/models/*.pth
+**/models/*.pt
+
+# Caches and uploads
+**/cache/
+**/model-cache/
+**/uploads/
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
