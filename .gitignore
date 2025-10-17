@@ -64,3 +64,6 @@ apps/web/node_modules/
 # Ignore OS files
 .DS_Store
 Thumbs.db
+ 
+# Ignore backend environment files containing secrets
+"3d apis"/backend/.env
