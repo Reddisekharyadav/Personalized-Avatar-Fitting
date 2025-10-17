@@ -18,6 +18,16 @@ services/ml/mrs_avatar_avatar.png
 services/ml/mrs.jpg
 services/ml/models/models_lockedhead/smplx/*.npz
 services/ml/models/models_lockedhead/smplx/md5sums.txt
+# Ignore ML model directories and common model binary extensions
+services/ml/models/
+3d using models/services/ml/models/
+**/models/*.npz
+**/models/*.pth
+**/models/*.pt
+**/models/*.onnx
+**/models/*.bin
+**/models/*.h5
+**/models/*.ckpt
 # Ignore Python cache and environment
 __pycache__/
 *.pyc

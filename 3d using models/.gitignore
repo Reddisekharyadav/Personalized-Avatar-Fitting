@@ -16,6 +16,16 @@ build/
 **/model/*.pt
 **/models/*.pth
 **/models/*.pt
+**/models/*.npz
+**/models/*.onnx
+**/models/*.bin
+**/models/*.h5
+**/models/*.ckpt
+**/*.npz
+**/*.obj
+**/*.mtl
+**/*.glb
+**/*.gltf
 
 # Caches and uploads
 **/cache/
