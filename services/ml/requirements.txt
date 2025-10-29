@@ -1,9 +1,0 @@
-celery
-boto3
-redis
-mediapipe
-opencv-python
-numpy
-Pillow
-scikit-image
-scipy

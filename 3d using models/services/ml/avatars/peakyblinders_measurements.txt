@@ -1,0 +1,1 @@
+{'shoulder_width': np.float64(617.8602243836779), 'hip_width': np.float64(381.8044302458337), 'height': np.float64(1914.838197658734)}
