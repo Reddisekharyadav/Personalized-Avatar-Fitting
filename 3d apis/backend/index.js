@@ -3,16 +3,24 @@ import dotenv from 'dotenv';
 import axios from 'axios';
 import cors from 'cors';
 import mongoose from 'mongoose';
+import cookieParser from 'cookie-parser';
 import fs from 'fs';
 import path from 'path';
-// AdmZip already imported above
+import AdmZip from 'adm-zip';
 import User from './models/User.js';
 import authRoutes from './routes/auth.js';
 import profileRoutes from './routes/profile.js';
 import wardrobeRoutes from './routes/wardrobe.js';
 import sketchfabRoutes from './routes/sketchfab.js';
+import sketchfabTryonRoutes from './routes/sketchfab-tryon.js';
 import tryon2dRoutes from './routes/tryon2d.js';
+import avatarRoutes from './routes/avatar.js';
+import assetsRoutes from './routes/assets.js';
+import rpmRoutes from './routes/rpm.js';
+import usersRoutes from './routes/users.js';
 import modelResourceHelper from './utils/modelResourceHelper.js';
+import { connectDB } from './lib/db.js';
+import { getGridFSReadStream } from './lib/gridfs.js';
 
 dotenv.config();
 
@@ -343,6 +351,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ limit: '25mb', extended: true }));
+app.use(cookieParser()); // Enable cookie parsing for JWT authentication
 // Permissions-Policy header: allow accelerometer/gyroscope for same-origin embeds
 app.use((req, res, next) => {
   // adjust origins as needed; here we allow same-origin (self)
@@ -352,6 +361,9 @@ app.use((req, res, next) => {
 
 // Serve static files from avatars directory
 app.use('/avatars', express.static(path.join(process.cwd(), 'avatars')));
+
+// Serve cache directory for Sketchfab extracted models
+app.use('/cache', express.static(path.join(process.cwd(), 'cache')));
 
 // Add dedicated routes for texture and bin files to ensure proper loading
 app.use('/textures', express.static(path.join(process.cwd(), 'avatars', 'textures')));
@@ -420,7 +432,13 @@ app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/wardrobe', wardrobeRoutes);
 app.use('/api/sketchfab', sketchfabRoutes);
+app.use('/api/sketchfab-tryon', sketchfabTryonRoutes);
 app.use('/api/tryon2d', tryon2dRoutes);
+// New RPM integration routes
+app.use('/api/avatar', avatarRoutes);
+app.use('/api/assets', assetsRoutes);
+app.use('/api/readyplayer', rpmRoutes);
+app.use('/api/users', usersRoutes);
 
 // Helper to finalize a downloaded/extracted asset: normalize glTF assets, optionally persist to user, and send response
 async function finalizeDownload({ req, res, relPath, absolutePath, email, cached = false }) {
@@ -493,6 +511,10 @@ async function finalizeDownload({ req, res, relPath, absolutePath, email, cached
 // Serve locally downloaded avatar assets with a fallback resolver.
 const avatarsDir = path.join(process.cwd(), 'avatars');
 try { fs.mkdirSync(avatarsDir, { recursive: true }); } catch (e) { /* ignore */ }
+
+// Define uploads directory for images and other small assets
+const uploadsDir = path.join(process.cwd(), 'uploads');
+try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (e) { /* ignore */ }
 
 // Middleware for serving model assets with dependency support
 app.use('/model-assets', async (req, res, next) => {
@@ -1101,6 +1123,27 @@ app.use('/avatars', async (req, res, next) => {
 
 // static fallback: serve files directly from avatars directory
 app.use('/avatars', express.static(avatarsDir));
+// serve regular uploads
+app.use('/uploads', express.static(uploadsDir));
+
+// Stream files from GridFS by id
+app.get('/api/files/:id', async (req, res) => {
+  try {
+    const stream = await getGridFSReadStream(req.params.id);
+    stream.on('file', (file) => {
+      if (file?.contentType) {
+        res.setHeader('Content-Type', file.contentType);
+      }
+    });
+    stream.on('error', (err) => {
+      console.error('GridFS stream error:', err?.message || err);
+      res.status(404).json({ error: 'File not found' });
+    });
+    return stream.pipe(res);
+  } catch (e) {
+    return res.status(400).json({ error: e.message || 'Invalid file id' });
+  }
+});
 
 // POST /api/upload-photo - receive base64 image (data URL or raw base64) and save
 app.post('/api/upload-photo', async (req, res) => {
@@ -1116,7 +1159,8 @@ app.post('/api/upload-photo', async (req, res) => {
       ext = matches[1].split('/')[1];
       data = matches[2];
     }
-    const fileName = `${Date.now()}-${(email||'anon').replace(/[^a-z0-9]/gi,'_')}.${ext}`;
+  const safeName = (email || 'anon').replaceAll(/[^a-z0-9]/gi, '_');
+  const fileName = `${Date.now()}-${safeName}.${ext}`;
     const filePath = path.join(uploadsDir, fileName);
     await fs.promises.writeFile(filePath, Buffer.from(data, 'base64'));
 

@@ -29,6 +29,13 @@ export const resolveModelUrl = (url) => {
     return getResolvedForAbsoluteUrl(url);
   }
 
+  // API endpoints should be routed to backend directly without modification
+  if (url.startsWith('/api/')) {
+    const backendBase = 'http://localhost:5000';
+    const ts = `t=${Date.now()}`;
+    return `${backendBase}${url}${url.includes('?') ? '&' : '?'}${ts}`;
+  }
+
   // Local or relative paths
   // If it's a glTF or GLB file path (local), route to backend model-assets endpoint
   // so dependent resources (scene.bin, textures) are served properly.

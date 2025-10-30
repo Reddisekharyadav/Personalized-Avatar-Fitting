@@ -9,3 +9,16 @@ pydantic[email]
 passlib[bcrypt]
 jwt
 python-dotenv
+aiofiles
+
+# ML dependencies (for direct worker import)
+mediapipe
+opencv-python
+numpy<2.0
+Pillow
+scikit-image
+scipy
+torch
+smplx
+trimesh
+deepface

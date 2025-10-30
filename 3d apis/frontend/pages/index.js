@@ -30,7 +30,7 @@ export default function Home() {
         <p className="mb-10 text-lg md:text-xl text-gray-800 text-center max-w-2xl animate-fade-in font-medium shadow-sm bg-white/60 rounded-xl px-6 py-4">Create your personalized 3D avatar, explore a wardrobe of digital outfits, and try them on in a stunning 3D environment.</p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-8 animate-fade-in w-full">
           <Link href="/login" className="btn-landing bg-gradient-to-r from-blue-500 to-blue-700 text-white px-16 py-6 rounded-3xl shadow-2xl hover:scale-110 hover:from-blue-600 hover:to-blue-800 transition-all text-3xl font-extrabold border-4 border-blue-200 focus:outline-none focus:ring-4 focus:ring-blue-300 mb-4 sm:mb-0">Login</Link>
-          <Link href="/register" className="btn-landing bg-gradient-to-r from-green-500 to-green-700 text-white px-16 py-6 rounded-3xl shadow-2xl hover:scale-110 hover:from-green-600 hover:to-green-800 transition-all text-3xl font-extrabold border-4 border-green-200 focus:outline-none focus:ring-4 focus:ring-green-300">Register</Link>
+          <Link href="/signup" className="btn-landing bg-gradient-to-r from-green-500 to-green-700 text-white px-16 py-6 rounded-3xl shadow-2xl hover:scale-110 hover:from-green-600 hover:to-green-800 transition-all text-3xl font-extrabold border-4 border-green-200 focus:outline-none focus:ring-4 focus:ring-green-300">Sign Up</Link>
         </div>
       </div>
       <footer className="mt-16 text-gray-400 text-sm z-10 text-center">&copy; {new Date().getFullYear()} Virtual Dressing Room</footer>

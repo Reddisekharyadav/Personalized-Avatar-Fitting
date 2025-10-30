@@ -185,47 +185,276 @@ router.get('/:email', async (req, res) => {
   }
 });
 
-export default router;
+// GET /api/wardrobe/sketchfab/resolve/:uid - Resolve GLB URL for a specific Sketchfab model
+router.get('/sketchfab/resolve/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const token = process.env.SKETCHFAB_API_TOKEN;
+    
+    if (!uid) {
+      return res.status(400).json({ error: 'Model UID required' });
+    }
+    
+    console.log(`🔍 Resolving GLB URL for Sketchfab model: ${uid}`);
+    const { preferred, tryOnSupported } = await resolveModelTryOn(uid, token);
+    
+    if (preferred) {
+      console.log(`✅ Found GLB URL for ${uid}: ${preferred}`);
+      
+      // Check if it's a ZIP file (Sketchfab often provides ZIP archives)
+      if (preferred.includes('.zip')) {
+        console.log(`⚠️ URL is a ZIP archive, not a direct GLB file`);
+        return res.json({ 
+          glbUrl: preferred, 
+          tryOnSupported: false,
+          success: false,
+          isZip: true,
+          message: 'This model is provided as a ZIP archive. Download and extraction would be required. Try another model with direct GLB support.'
+        });
+      }
+      
+      return res.json({ 
+        glbUrl: preferred, 
+        tryOnSupported,
+        success: true,
+        isZip: false
+      });
+    } else {
+      console.log(`⚠️ No GLB URL found for ${uid}`);
+      return res.json({ 
+        glbUrl: null, 
+        tryOnSupported: false,
+        success: false,
+        message: 'No downloadable GLB file available for this model'
+      });
+    }
+  } catch (err) {
+    console.error('GLB resolution error:', err?.message || err);
+    return res.status(500).json({ error: 'Failed to resolve GLB URL', details: err?.message || err });
+  }
+});
+
+// GET /api/wardrobe/sketchfab/download/:uid - Download and convert Sketchfab model to GLB
+router.get('/sketchfab/download/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const token = process.env.SKETCHFAB_API_TOKEN;
+    
+    if (!uid) {
+      return res.status(400).json({ error: 'Model UID required' });
+    }
+    
+    console.log(`📥 Attempting to download Sketchfab model: ${uid}`);
+    
+    // First, get the model's download info
+    const headers = token ? { 'Authorization': `Token ${token}` } : {};
+    const modelResponse = await axios.get(`https://api.sketchfab.com/v3/models/${uid}/download`, {
+      headers,
+      timeout: 10000
+    });
+    
+    const downloadData = modelResponse.data;
+    console.log(`📦 Download data:`, downloadData);
+    
+    // Look for GLTF or GLB format
+    const gltfFormat = downloadData.gltf || downloadData.glb;
+    if (!gltfFormat || !gltfFormat.url) {
+      console.log(`⚠️ No GLTF/GLB download available for ${uid}`);
+      return res.json({ 
+        success: false,
+        message: 'This model does not have a downloadable GLTF/GLB format'
+      });
+    }
+    
+    const downloadUrl = gltfFormat.url;
+    console.log(`✅ Found download URL: ${downloadUrl}`);
+    
+    // Check if it's a ZIP file
+    if (downloadUrl.includes('.zip') || downloadUrl.includes('archive')) {
+      console.log(`⚠️ Download is a ZIP archive, not direct GLB`);
+      
+      // For ZIP files, we'd need to download, extract, and convert
+      // For now, return the URL and let the frontend know it needs processing
+      return res.json({
+        success: false,
+        glbUrl: downloadUrl,
+        isZip: true,
+        message: 'This model is provided as a ZIP archive. Direct overlay not supported. Try another model.'
+      });
+    }
+    
+    // If it's a direct GLB, return the URL
+    if (downloadUrl.endsWith('.glb')) {
+      console.log(`✅ Direct GLB file available`);
+      return res.json({
+        success: true,
+        glbUrl: downloadUrl,
+        isZip: false
+      });
+    }
+    
+    // If it's GLTF, we could convert it (but this requires downloading dependencies)
+    // For now, try to return the GLTF URL and let model-viewer handle it
+    if (downloadUrl.endsWith('.gltf')) {
+      console.log(`✅ GLTF file available (model-viewer can handle it)`);
+      return res.json({
+        success: true,
+        glbUrl: downloadUrl,
+        isZip: false,
+        isGltf: true
+      });
+    }
+    
+    // Unknown format
+    return res.json({
+      success: false,
+      message: 'Unknown model format'
+    });
+    
+  } catch (err) {
+    console.error('Sketchfab download error:', err?.message || err);
+    const status = err?.response?.status;
+    
+    if (status === 403 || status === 401) {
+      return res.status(403).json({ 
+        error: 'Authentication required or model not downloadable',
+        success: false,
+        message: 'This model requires authentication or is not available for download'
+      });
+    }
+    
+    return res.status(500).json({ 
+      error: 'Failed to download Sketchfab model', 
+      details: err?.message || err,
+      success: false
+    });
+  }
+});
 
 // New: search Sketchfab models and return resolved items (GLB when possible)
 router.get('/sketchfab/search', async (req, res) => {
-  const q = req.query.q || 'clothes';
+  const q = req.query.q || 'clothing fashion'; // Broader default search
   const token = process.env.SKETCHFAB_API_TOKEN;
-  if (!token) return res.status(500).json({ error: 'SKETCHFAB_API_TOKEN not configured' });
+  
+  console.log(`🔍 Sketchfab search request: query="${q}"`);
+  
   try {
-    // Use rate-limited search helper if available
-    const { searchModelsWithRateLimit } = await import('../utils/rateLimiter.js');
-
     // Allow configurable caps via env vars to avoid unbounded fetching
-    const MAX_PAGES = Math.max(1, parseInt(process.env.SKETCHFAB_SEARCH_MAX_PAGES || '5', 10));
-    const PER_PAGE = Math.max(6, parseInt(process.env.SKETCHFAB_SEARCH_PER_PAGE || '24', 10));
+    const MAX_PAGES = Math.max(1, Number.parseInt(process.env.SKETCHFAB_SEARCH_MAX_PAGES || '3', 10));
+    const PER_PAGE = Math.max(6, Number.parseInt(process.env.SKETCHFAB_SEARCH_PER_PAGE || '24', 10));
+
+    // Try direct Sketchfab API call (public + authenticated)
+    async function fetchSketchfabPage(page) {
+      const params = {
+        q: q,
+        type: 'models',
+        downloadable: true, // Only get downloadable models
+        page: page,
+        count: PER_PAGE,
+        sort_by: '-likeCount' // Most popular first
+        // Removed categories filter to get more results
+      };
+
+      // Try with authentication header if token exists
+      const headers = token ? { 'Authorization': `Token ${token}` } : {};
+      
+      console.log(`📡 Fetching Sketchfab page ${page} with params:`, params);
+      
+      const response = await axios.get('https://api.sketchfab.com/v3/models', {
+        params,
+        headers,
+        timeout: 10000
+      });
+
+      return response.data;
+    }
 
     // Accumulate results across pages and deduplicate by UID
     async function accumulateModels() {
       const acc = new Map();
+      
       for (let page = 1; page <= MAX_PAGES; page++) {
-        const response = await searchModelsWithRateLimit({ q, page, per_page: PER_PAGE }, token);
-        const models = response?.data?.results || [];
-        if (!models || models.length === 0) break;
-        for (const m of models) if (m && m.uid && !acc.has(m.uid)) acc.set(m.uid, m);
-        if (models.length < PER_PAGE) break;
+        try {
+          const data = await fetchSketchfabPage(page);
+          const models = data?.results;
+          
+          // Debug logging
+          console.log(`✅ Sketchfab page ${page} response:`, {
+            resultsCount: Array.isArray(models) ? models.length : 0,
+            totalResults: data?.cursors?.total || data?.count || 'unknown',
+            next: data?.cursors?.next || data?.next || 'none'
+          });
+          
+          // Guard: ensure models is an array before iterating
+          if (!Array.isArray(models) || models.length === 0) {
+            console.log(`⚠️ Sketchfab page ${page}: no results`);
+            break;
+          }
+          
+          for (const m of models) {
+            if (m && m.uid && !acc.has(m.uid)) {
+              acc.set(m.uid, m);
+              console.log(`  ✓ Added model: ${m.name} (${m.uid})`);
+            }
+          }
+          
+          // Stop if no more pages
+          if (!data?.cursors?.next && !data?.next) break;
+          if (models.length < PER_PAGE) break;
+          
+          // Rate limiting - wait 500ms between requests
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+        } catch (error_) {
+          console.error(`❌ Error fetching Sketchfab page ${page}:`, {
+            message: error_?.message,
+            status: error_?.response?.status,
+            statusText: error_?.response?.statusText,
+            responseData: error_?.response?.data
+          });
+          
+          // If first page fails, return empty to avoid breaking the app
+          if (page === 1) {
+            console.log('⚠️ First page failed - API may be rate limited or token invalid');
+          }
+          break;
+        }
       }
+      
       return Array.from(acc.values());
     }
 
     const byUidList = await accumulateModels();
 
     const items = [];
-    // For each model, attempt to mark tryOnSupported when a direct GLB URL is found
+    // For each model, add basic info with Sketchfab viewer URL for direct embedding
     for (const m of byUidList) {
       const title = m.name || m.title || 'Sketchfab outfit';
-      const { preferred, tryOnSupported } = await resolveModelTryOn(m.uid, token);
-      items.push({ id: m.uid, name: title, thumbnail: m.thumbnails?.images?.[0]?.url || m.representation?.thumbnail, modelUrl: m.viewerUrl || m.viewer_url, preferredModelUrl: preferred, tryOnSupported });
+      
+      // Create Sketchfab embed URL for iframe viewing (no download needed!)
+      const embedUrl = `https://sketchfab.com/models/${m.uid}/embed?autostart=1&ui_theme=dark&ui_infos=0&ui_controls=1&ui_watermark=0&dnt=1`;
+      
+      items.push({ 
+        id: m.uid, 
+        name: title, 
+        thumbnail: m.thumbnails?.images?.[0]?.url || m.representation?.thumbnail, 
+        modelUrl: embedUrl,  // Direct embed URL - no download needed!
+        sketchfabUrl: m.viewerUrl || m.viewer_url,  // Original Sketchfab page
+        preferredModelUrl: embedUrl,  // Use embed as preferred
+        tryOnSupported: true,  // Can be viewed via iframe
+        isEmbed: true,  // Flag to indicate this uses Sketchfab embed
+        needsGlbResolution: false  // No need to resolve - embed works directly
+      });
+      
+      console.log(`✓ Added model: ${title}`);
     }
 
+    console.log(`✅ Returning ${items.length} Sketchfab models`);
     return res.json({ items });
   } catch (err) {
     console.error('Sketchfab search error:', err?.message || err);
     return res.status(502).json({ error: 'Sketchfab search failed', details: err?.message || err });
   }
 });
+
+export default router;

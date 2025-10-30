@@ -19,10 +19,15 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/_error.js"
     ],
-    "/tryon2d": [
+    "/login": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
-      "static/chunks/pages/tryon2d.js"
+      "static/chunks/pages/login.js"
+    ],
+    "/wardrobe": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/wardrobe.js"
     ]
   },
   "ampFirstPages": []

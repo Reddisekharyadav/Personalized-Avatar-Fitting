@@ -65,7 +65,7 @@ const WardrobeViewer = ({
 
   // Load the model-viewer component dynamically on client side
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (globalThis.window !== undefined) {
       // Add debug element
       if (!document.getElementById('model-debug-info')) {
         const debugEl = document.createElement('div');
@@ -75,22 +75,34 @@ const WardrobeViewer = ({
         debugEl.innerHTML = 'Model loading debug info:<br>';
       }
       
-      // Check if model-viewer is already defined
+      // Check if model-viewer is already defined - CRITICAL CHECK
       if (customElements.get('model-viewer')) {
         setViewerReady(true);
-        console.log('model-viewer component already loaded');
+        console.log('✅ model-viewer component already loaded');
         return;
       }
       
-      // Try to load the model-viewer in different ways
+      // Try to load the model-viewer ONLY if not already loaded
       const loadModelViewer = async () => {
+        // Double-check before attempting to load
+        if (customElements.get('model-viewer')) {
+          setViewerReady(true);
+          return;
+        }
+        
         try {
           // First attempt: Try dynamic import (preferred)
           await import('@google/model-viewer');
           setViewerReady(true);
-          console.log('model-viewer component loaded via import');
+          console.log('✅ model-viewer component loaded via import');
         } catch (err) {
-          console.warn('Failed to load model-viewer via import, trying CDN:', err);
+          console.warn('⚠️ Failed to load model-viewer via import, trying CDN:', err);
+          
+          // Check again before CDN fallback
+          if (customElements.get('model-viewer')) {
+            setViewerReady(true);
+            return;
+          }
           
           // Show debug info
           const debugEl = document.getElementById('model-debug-info');
@@ -99,18 +111,25 @@ const WardrobeViewer = ({
             debugEl.innerHTML += `<br>Failed to load model-viewer component: ${err.message}<br>Trying CDN fallback...`;
           }
           
-          // Fallback: Load from CDN
+          // Fallback: Load from CDN - check if script already exists
+          const existingScript = document.querySelector('script[src*="model-viewer"]');
+          if (existingScript) {
+            console.log('⚠️ model-viewer script already in DOM, waiting...');
+            setViewerReady(true);
+            return;
+          }
+          
           const script = document.createElement('script');
           script.type = 'module';
           script.src = 'https://unpkg.com/@google/model-viewer@4.1.0/dist/model-viewer.min.js';
           
           script.onload = () => {
             setViewerReady(true);
-            console.log('model-viewer component loaded from CDN');
+            console.log('✅ model-viewer component loaded from CDN');
           };
           
           script.onerror = (cdnErr) => {
-            console.error('Failed to load model-viewer from CDN:', cdnErr);
+            console.error('❌ Failed to load model-viewer from CDN:', cdnErr);
           };
           
           document.head.appendChild(script);
@@ -252,18 +271,59 @@ const WardrobeViewer = ({
     };
   }, [viewerReady, avatarUrl]);
 
-  // Position the outfit model correctly
+  // Position the outfit model correctly and sync cameras
   useEffect(() => {
     if (!outfitViewerRef.current || !outfitUrl || !modelLoaded) return;
     
+    console.log('🎨 Setting up outfit overlay...');
+    
     // Apply transformation to outfit
     const outfitElement = outfitViewerRef.current;
+    const avatarElement = avatarViewerRef.current;
+    
+    // Wait for outfit model to load
+    const handleOutfitLoad = () => {
+      console.log('✅ Outfit model loaded successfully');
+      syncCameras();
+    };
+    
+    outfitElement.addEventListener('load', handleOutfitLoad);
     
     try {
+      // Sync camera position from avatar to outfit
+      const syncCameras = () => {
+        if (!avatarElement || !outfitElement) return;
+        
+        try {
+          const avatarOrbit = avatarElement.getCameraOrbit();
+          const avatarTarget = avatarElement.getCameraTarget();
+          
+          if (avatarOrbit && avatarTarget) {
+            outfitElement.cameraOrbit = `${avatarOrbit.theta}rad ${avatarOrbit.phi}rad ${avatarOrbit.radius}m`;
+            outfitElement.cameraTarget = `${avatarTarget.x}m ${avatarTarget.y}m ${avatarTarget.z}m`;
+            console.log('📷 Camera synced:', { 
+              theta: avatarOrbit.theta, 
+              phi: avatarOrbit.phi, 
+              radius: avatarOrbit.radius 
+            });
+          }
+        } catch (e) {
+          console.warn('Camera sync failed:', e);
+        }
+      };
+      
+      // Sync cameras initially
+      syncCameras();
+      
+      // Keep syncing as avatar camera moves
+      const handleCameraChange = () => syncCameras();
+      avatarElement.addEventListener('camera-change', handleCameraChange);
+      
       // Update scale
       if (outfitScale !== 1) {
         // model-viewer requires scale to be set as a string with three values
         outfitElement.setAttribute('scale', `${outfitScale} ${outfitScale} ${outfitScale}`);
+        console.log(`📏 Outfit scale set to: ${outfitScale}`);
       }
       
       // Update position (Y offset)
@@ -274,11 +334,21 @@ const WardrobeViewer = ({
         
         // Also apply CSS transform as a fallback
         outfitElement.style.transform = `translateY(${outfitOffsetY}px)`;
+        console.log(`📍 Outfit Y offset set to: ${outfitOffsetY}`);
       }
       
-      console.log(`Applied outfit transformations: scale=${outfitScale}, offsetY=${outfitOffsetY}`);
+      console.log(`✨ Outfit overlay configured successfully`);
+      
+      return () => {
+        if (avatarElement) {
+          avatarElement.removeEventListener('camera-change', handleCameraChange);
+        }
+        if (outfitElement) {
+          outfitElement.removeEventListener('load', handleOutfitLoad);
+        }
+      };
     } catch (error) {
-      console.error('Error applying transformations to outfit:', error);
+      console.error('❌ Error applying transformations to outfit:', error);
     }
   }, [outfitUrl, outfitOffsetY, outfitScale, modelLoaded]);
 
@@ -291,7 +361,13 @@ const WardrobeViewer = ({
   const resolvedOutfitUrl = outfitUrl ? resolveModelUrl(outfitUrl) : null;
 
   return (
-    <div ref={containerRef} style={{ width, height, position: 'relative' }}>
+    <div ref={containerRef} style={{ 
+      width, 
+      height, 
+      position: 'relative',
+      overflow: 'hidden',
+      backgroundColor: 'transparent'
+    }}>
       {/* Avatar model viewer */}
       <model-viewer
         ref={avatarViewerRef}
@@ -300,8 +376,9 @@ const WardrobeViewer = ({
         auto-rotate
         ar
         shadow-intensity="1"
-        environment-image="neutral"
-        exposure="1"
+        environment-image="https://modelviewer.dev/shared-assets/environments/aircraft_workshop_01_1k.hdr"
+        exposure="1.5"
+        tone-mapping="commerce"
         loading="eager"
         reveal="auto"
         style={{
@@ -311,8 +388,10 @@ const WardrobeViewer = ({
           top: 0,
           left: 0,
           backgroundColor: 'transparent',
+          zIndex: 1
         }}
         camera-target="0m 1m 0m"
+        camera-orbit="0deg 75deg 105%"
         min-camera-orbit="auto auto auto"
         max-camera-orbit="auto auto auto"
         disable-zoom
@@ -352,20 +431,34 @@ const WardrobeViewer = ({
           ref={outfitViewerRef}
           src={resolvedOutfitUrl}
           camera-controls={false}
-          environment-image="neutral"
-          exposure="1"
+          auto-rotate
+          ar
+          shadow-intensity="0"
+          environment-image="https://modelviewer.dev/shared-assets/environments/aircraft_workshop_01_1k.hdr"
+          exposure="2.0"
+          tone-mapping="commerce"
           loading="eager"
           reveal="auto"
+          camera-target="0m 1m 0m"
+          camera-orbit="0deg 75deg 105%"
+          min-camera-orbit="auto auto auto"
+          max-camera-orbit="auto auto auto"
+          disable-zoom
           style={{
             width: '100%',
             height: '100%',
             position: 'absolute',
             top: 0,
             left: 0,
+            background: 'transparent',
             backgroundColor: 'transparent',
-            pointerEvents: 'none', // Allow events to pass through to avatar viewer
+            pointerEvents: 'none',
+            zIndex: 2,
+            filter: 'saturate(1.3) contrast(1.1) brightness(1.15)'
           }}
-        />
+        >
+          <div slot="poster" style={{ display: 'none' }}></div>
+        </model-viewer>
       )}
     </div>
   );

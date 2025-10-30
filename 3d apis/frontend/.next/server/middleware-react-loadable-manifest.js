@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}"
+self.__REACT_LOADABLE_MANIFEST="{\"components\\\\WardrobeViewer.jsx -> @google/model-viewer\":{\"id\":\"components\\\\WardrobeViewer.jsx -> @google/model-viewer\",\"files\":[\"static/chunks/node_modules_google_model-viewer_lib_model-viewer_js.js\"]},\"utils\\\\loadModelViewer.js -> @google/model-viewer\":{\"id\":\"utils\\\\loadModelViewer.js -> @google/model-viewer\",\"files\":[\"static/chunks/node_modules_google_model-viewer_lib_model-viewer_js.js\"]}}"

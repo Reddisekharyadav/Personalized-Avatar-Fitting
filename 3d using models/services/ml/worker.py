@@ -7,7 +7,21 @@ def extract_face_landmarks(image_path):
         import mediapipe as mp
         image = Image.open(image_path).convert('RGB')
         img_np = np.array(image)
-        mp_face_mesh = mp.solutions.face_mesh
+        # Obtain face_mesh module with compatibility fallbacks across mediapipe versions
+        mp_face_mesh = None
+        try:
+            # Try the public API first (mediapipe.solutions.face_mesh)
+            if hasattr(mp, 'solutions') and hasattr(mp.solutions, 'face_mesh'):
+                mp_face_mesh = mp.solutions.face_mesh
+            else:
+                # Fallback to direct import which can exist in some installations
+                from mediapipe.python.solutions import face_mesh as mp_face_mesh  # type: ignore
+        except Exception:
+            # Final fallback to top-level attribute on mediapipe (older versions)
+            if hasattr(mp, 'face_mesh'):
+                mp_face_mesh = mp.face_mesh
+        if mp_face_mesh is None:
+            raise ImportError("mediapipe face_mesh module not found")
         with mp_face_mesh.FaceMesh(static_image_mode=True) as face_mesh:
             results = face_mesh.process(img_np)
             if results.multi_face_landmarks:
@@ -103,15 +117,29 @@ celery_app = Celery('worker', broker=os.getenv('REDIS_URL', 'redis://localhost:6
 def detect_gender(image_path):
     try:
         result = DeepFace.analyze(img_path=image_path, actions=['gender'], enforce_detection=False)
-        gender = result['gender']
-        # DeepFace returns 'Man' or 'Woman'
-        if gender.lower().startswith('m'):
-            return 'male'
-        else:
-            return 'female'
+        # DeepFace can return dict or list depending on version
+        if isinstance(result, list):
+            result = result[0]
+        
+        # Try different possible keys
+        gender = result.get('dominant_gender') or result.get('gender')
+        
+        # DeepFace returns 'Man'/'Woman' or 'male'/'female' depending on version
+        if gender:
+            gender_lower = str(gender).lower()
+            if 'man' in gender_lower or 'male' in gender_lower:
+                print(f"Detected gender: male (from {gender})")
+                return 'male'
+            else:
+                print(f"Detected gender: female (from {gender})")
+                return 'female'
+        
+        print("Gender detection: no gender in result, using female as default")
+        return 'female'
     except Exception as e:
         print(f"Gender detection failed: {e}")
-        return 'neutral'
+        print("Using female as fallback")
+        return 'female'
 
 def extract_body_shape(image_path, save_intermediate=True):
     mp_pose = mp.solutions.pose
@@ -141,26 +169,73 @@ def extract_body_shape(image_path, save_intermediate=True):
 # --- 3D Avatar Generation ---
 def fit_smplx_to_landmarks(landmarks, model_path, gender="neutral", out_path="avatar.obj"):
     """
-    Fit SMPL-X model to pose landmarks and export as OBJ.
-    Requires SMPL-X model file at model_path.
+    Create a simple 3D mesh from pose landmarks using trimesh.
+    This bypasses SMPLX hand component issues by generating a basic body mesh directly.
     """
-    # Prepare SMPL-X model
-    model = smplx.SMPLX(model_path,
-        gender=gender,
-        use_face_contour=True,
-        ext='npz')
-    # Estimate body pose from landmarks (simple heuristic)
-    # For demo: use T-pose, set shape params to zero
-    betas = torch.zeros([1, 10])
-    body_pose = torch.zeros([1, 21, 3])
-    global_orient = torch.zeros([1, 3])
-    transl = torch.zeros([1, 3])
-    output = model(betas=betas, body_pose=body_pose, global_orient=global_orient, transl=transl)
-    vertices = output.vertices.detach().cpu().numpy().squeeze()
-    faces = model.faces
-    # Export mesh as OBJ
-    mesh = trimesh.Trimesh(vertices, faces)
+    import numpy as np
+    
+    # MediaPipe pose landmark indices for body keypoints
+    # https://google.github.io/mediapipe/solutions/pose.html
+    keypoint_indices = {
+        'nose': 0,
+        'left_eye_inner': 1, 'left_eye': 2, 'left_eye_outer': 3,
+        'right_eye_inner': 4, 'right_eye': 5, 'right_eye_outer': 6,
+        'left_ear': 7, 'right_ear': 8,
+        'mouth_left': 9, 'mouth_right': 10,
+        'left_shoulder': 11, 'right_shoulder': 12,
+        'left_elbow': 13, 'right_elbow': 14,
+        'left_wrist': 15, 'right_wrist': 16,
+        'left_pinky': 17, 'right_pinky': 18,
+        'left_index': 19, 'right_index': 20,
+        'left_thumb': 21, 'right_thumb': 22,
+        'left_hip': 23, 'right_hip': 24,
+        'left_knee': 25, 'right_knee': 26,
+        'left_ankle': 27, 'right_ankle': 28,
+        'left_heel': 29, 'right_heel': 30,
+        'left_foot_index': 31, 'right_foot_index': 32
+    }
+    
+    # Extract 3D coordinates from landmarks
+    # MediaPipe gives normalized coords (0-1), we need to scale them properly
+    vertices = []
+    for lm in landmarks:
+        # Scale to world coordinates: multiply by 2 and center around origin
+        # Y is inverted (MediaPipe Y goes down, we want Y up)
+        x = (lm.x - 0.5) * 2.0  # -1 to 1
+        y = -(lm.y - 0.5) * 2.0  # -1 to 1, inverted
+        z = lm.z * 2.0           # depth
+        vertices.append([x, y, z])
+    
+    vertices = np.array(vertices, dtype=np.float32)
+    
+        # Triangulate all pose landmarks in 2D (x, y) to create a solid mesh
+        from scipy.spatial import Delaunay
+        points2d = vertices[:, :2]  # use x, y for triangulation
+        tri = Delaunay(points2d)
+        faces = tri.simplices
+    
+    # Create mesh
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+    # Center mesh at origin
+    mesh.vertices -= mesh.centroid
+
+    # Normalize mesh to fit within [-1, 1] in all axes
+    bounds = mesh.bounds
+    max_range = max(bounds[1] - bounds[0])
+    if max_range > 0:
+        mesh.vertices /= max_range / 2.0  # scale so largest dimension is 2 units
+
+    # Optional: scale to 1.7 units tall (human height)
+    bounds = mesh.bounds
+    height = bounds[1][1] - bounds[0][1]
+    if height > 0:
+        mesh.vertices *= (1.7 / height)
+
+    mesh.fix_normals()
     mesh.export(out_path)
+    print(f"Generated 3D mesh: {len(vertices)} vertices, {len(faces)} faces")
+    print(f"Final mesh bounds: {mesh.bounds}")
     return out_path
 
 def generate_avatar_silhouette(landmarks, mask_img, out_path):
@@ -185,7 +260,8 @@ def process_user_image(image_path):
     3. Generates a stylized avatar silhouette PNG
     """
     AVATAR_SUFFIX = '_avatar.png'
-    landmarks, mask_img = extract_body_shape(image_path)
+    # extract_body_shape returns (landmarks, mask_img, measurements, image_size)
+    landmarks, mask_img, _measurements, _image_size = extract_body_shape(image_path)
     if landmarks is None:
         return {"error": "No person detected"}
     out_path = image_path.replace('.jpg', AVATAR_SUFFIX).replace('.jpeg', AVATAR_SUFFIX).replace('.png', AVATAR_SUFFIX)
@@ -223,9 +299,14 @@ def process_user_image_3d_auto_gender(image_path, model_paths, formal_dress_asse
     if face_landmarks:
         import cv2
         img = cv2.imread(image_path)
-        for (x, y) in face_landmarks:
-            cv2.circle(img, (x, y), 2, (0, 255, 0), -1)
-        cv2.imwrite(image_path.replace('.jpg', '_facelandmarks.png').replace('.jpeg', '_facelandmarks.png').replace('.png', '_facelandmarks.png'), img)
+        if img is None:
+            print(f"Could not read image for drawing face landmarks: {image_path}")
+        else:
+            # Draw landmarks directly on the numpy image (avoids cv2.UMat typing/runtime issues)
+            for (x, y) in face_landmarks:
+                cv2.circle(img, (int(x), int(y)), 2, (0, 255, 0), -1)
+            out_img = img
+            cv2.imwrite(image_path.replace('.jpg', '_facelandmarks.png').replace('.jpeg', '_facelandmarks.png').replace('.png', '_facelandmarks.png'), out_img)
     return {
         "avatar_obj": obj_path,
         "gender": detected_gender,

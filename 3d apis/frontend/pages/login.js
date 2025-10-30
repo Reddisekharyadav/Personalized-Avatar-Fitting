@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import axios from 'axios';
 import { useRouter } from 'next/router';
+import ApiClient, { setAuthToken } from '../utils/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,12 +12,15 @@ export default function Login() {
     e.preventDefault();
     setError('');
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/login', { email, password });
-      localStorage.setItem('token', res.data.token);
+      const res = await ApiClient.login({ email, password });
+      if (res?.token) setAuthToken(res.token);
       localStorage.setItem('userEmail', email);
+      if (res?.user?.readyPlayerUserId) {
+        localStorage.setItem('readyPlayerUserId', res.user.readyPlayerUserId);
+      }
       router.push('/wardrobe');
-    } catch {
-      setError('Invalid email or password.');
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Invalid email or password.');
     }
   };
 
@@ -31,6 +34,16 @@ export default function Login() {
           <button type="submit" className="login-btn">Login</button>
           {error && <div className="login-error">{error}</div>}
         </form>
+        <p className="text-center text-sm text-gray-600 mt-4">
+          Don't have an account?{' '}
+          <button 
+            type="button"
+            onClick={() => router.push('/signup')}
+            className="text-blue-600 hover:text-blue-700 font-semibold underline"
+          >
+            Sign up
+          </button>
+        </p>
       </div>
     <style jsx>{`
       .login-bg {
